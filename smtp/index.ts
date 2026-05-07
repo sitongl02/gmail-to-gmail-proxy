@@ -4,14 +4,22 @@ import Server from "smtp-server";
 import {
   getApp,
   getCredentials,
+  getGmail1Credentials,
+  getGmailMessageRaw,
   GoogleOAuthCredentials,
   sendGmailMessage,
+  trashGmailMessagesByRfc822MessageId,
 } from "../lib/google.js";
 import fs from "node:fs";
-import { getUser, User } from "../lib/db.js";
+import { getSentCopyBinding, getUser, User } from "../lib/db.js";
 import { onMailForwarded } from "../lib/hooks.js";
 import Cache from "node-cache";
-import { createMailLog, updateMailLog } from "../lib/mail-log.js";
+import {
+  createMailLog,
+  type UpdateMailLogInput,
+  updateMailLog,
+} from "../lib/mail-log.js";
+import { appendToGmailSent } from "../lib/gmail-imap.js";
 
 type SessionUser = {
   user: User;
@@ -71,7 +79,7 @@ const server = new Server.SMTPServer({
           const msg = raw.toString("base64");
           const rawMime = raw.toString("utf8");
           // unfortunately, gmail seems to send the same message multiple times when sending to multiple recipients so we must dedupe
-          const messageId = rawMime.match(/^Message-ID: (.*)$/im)?.[1];
+          const messageId = extractMessageId(rawMime);
           const sessionUser = session.user as any as SessionUser;
           mailLogPath = await createMailLog({
             user_email: sessionUser.user.email,
@@ -98,11 +106,25 @@ const server = new Server.SMTPServer({
             sessionUser.credentials,
             raw
           );
-          await updateMailLog(mailLogPath, {
-            status: "sent",
-            gmail_response: gmailResponse,
-          });
-          onMailForwarded(sessionUser.user.email, msg);
+          const sentCopyLogFields = await getSentCopyLogFields(
+            sessionUser,
+            gmailResponse,
+            messageId
+          );
+          try {
+            await updateMailLog(mailLogPath, {
+              status: "sent",
+              gmail_response: gmailResponse,
+              ...sentCopyLogFields,
+            });
+          } catch (logErr) {
+            console.error("Failed to update sent mail log", logErr);
+          }
+          try {
+            onMailForwarded(sessionUser.user.email, msg);
+          } catch (hookErr) {
+            console.error("Mail forwarded hook failed", hookErr);
+          }
           callback();
         } catch (err: any) {
           if (mailLogPath) {
@@ -137,6 +159,72 @@ function serializeError(err: unknown) {
 
 function getEnvelopeAddress(address: false | { address: string }) {
   return address ? address.address : undefined;
+}
+
+async function getSentCopyLogFields(
+  sessionUser: SessionUser,
+  gmailResponse: { id?: string },
+  originalMessageId?: string
+): Promise<UpdateMailLogInput> {
+  const fields: UpdateMailLogInput = {};
+  try {
+    if (!gmailResponse.id) {
+      throw new Error("Gmail API send response did not include message id.");
+    }
+
+    fields.gmail_sent_message_id = gmailResponse.id;
+    const sentRaw = await getGmailMessageRaw(
+      sessionUser.credentials,
+      gmailResponse.id
+    );
+    const sentRawMime = sentRaw.toString("utf8");
+    fields.sent_raw_mime = sentRawMime;
+    fields.sent_raw_mime_base64 = sentRaw.toString("base64");
+    fields.sent_raw_message_id = extractMessageId(sentRawMime);
+
+    const binding = await getSentCopyBinding(sessionUser.user.email);
+    if (!binding) {
+      fields.sent_copy_status = "not_configured";
+      return fields;
+    }
+
+    fields.sent_copy_gmail1_email = binding.gmail1_email;
+    const gmail1Credentials = await getGmail1Credentials(
+      binding.gmail1_email,
+      binding.gmail1_email,
+      getApp(binding.gmail1.app_id)
+    );
+    const appendResult = await appendToGmailSent({
+      email: binding.gmail1_email,
+      accessToken: gmail1Credentials.access_token,
+      raw: sentRaw,
+    });
+    fields.sent_copy_status = "appended";
+    fields.sent_copy_mailbox = appendResult.mailbox;
+    fields.sent_copy_append_response = appendResult.response;
+    const deleteResult = await trashGmailMessagesByRfc822MessageId(
+      gmail1Credentials,
+      originalMessageId
+    );
+    fields.sent_copy_delete_status = deleteResult.status;
+    fields.sent_copy_delete_message_id = deleteResult.rfc822_message_id;
+    fields.sent_copy_delete_gmail_message_ids = deleteResult.gmail_message_ids;
+    fields.sent_copy_delete_deleted_count = deleteResult.trashed_count;
+    fields.sent_copy_delete_responses = deleteResult.responses;
+    fields.sent_copy_delete_error = deleteResult.error;
+    fields.sent_copy_delete_skipped_reason = deleteResult.skipped_reason;
+    return fields;
+  } catch (err) {
+    return {
+      ...fields,
+      sent_copy_status: "failed",
+      sent_copy_error: serializeError(err),
+    };
+  }
+}
+
+function extractMessageId(rawMime: string) {
+  return rawMime.match(/^Message-ID:\s*(.*)$/im)?.[1]?.trim();
 }
 
 const port = Number(process.env.SMTP_PORT ?? 587);

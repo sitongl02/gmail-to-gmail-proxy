@@ -63,11 +63,13 @@ export default function Home() {
                 Permissions
               </h2>
               <p className="text-black bg-gray-200 p-4 mt-4">
-                The Gmail permission requested is{" "}
+                Gmail2 uses{" "}
                 <code>https://www.googleapis.com/auth/gmail.send</code>, which
-                is used to send mail only. The OAuth login also requests{" "}
-                <code>openid email</code> so the app can identify which Gmail
-                address owns the generated SMTP credentials.
+                is used to send mail, and{" "}
+                <code>https://www.googleapis.com/auth/gmail.readonly</code> to
+                read Gmail2's actual sent MIME after delivery. Gmail1 uses{" "}
+                <code>https://mail.google.com/</code> so the app can append
+                Gmail2's actual sent MIME into Gmail1 Sent Mail over IMAP.
               </p>
             </div>
           </div>

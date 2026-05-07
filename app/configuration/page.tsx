@@ -5,6 +5,7 @@ import {
   ArrowRight,
   Copy,
   Loader2,
+  MailCheck,
   Server,
   Link,
   LogOut,
@@ -23,6 +24,7 @@ export default function Page() {
     smtpPort: number;
     smtpServer: string;
     security: string;
+    sentCopyGmail1Email: string | null;
   } | null>(null);
 
   useEffect(() => {
@@ -36,6 +38,7 @@ export default function Page() {
           smtpPort: data.smtp_port,
           smtpServer: data.smtp_host,
           security: "TLS",
+          sentCopyGmail1Email: data.sent_copy_gmail1_email,
         });
       } catch (err) {
         setError(
@@ -67,6 +70,7 @@ export default function Page() {
         smtpPort: data.smtp_port,
         smtpServer: data.smtp_host,
         security: "TLS",
+        sentCopyGmail1Email: data.sent_copy_gmail1_email,
       });
     } catch (err) {
       setError(
@@ -245,6 +249,46 @@ export default function Page() {
                   >
                     <Copy className="h-5 w-5 text-gray-500" />
                   </button>
+                </div>
+              </div>
+
+              <div className="pt-8 border-t border-gray-100">
+                <div className="flex items-center space-x-3 mb-6">
+                  <MailCheck className="h-7 w-7 text-blue-500" />
+                  <h2 className="text-xl font-semibold text-gray-900">
+                    Gmail1 Sent Copy
+                  </h2>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="bg-gray-50 p-4 rounded-lg">
+                    <label className="block text-sm font-medium text-gray-500 uppercase">
+                      Gmail2 Sender
+                    </label>
+                    <div className="mt-1 text-lg font-mono text-black">
+                      {config.email}
+                    </div>
+                  </div>
+
+                  <div className="bg-gray-50 p-4 rounded-lg">
+                    <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-500 uppercase">
+                          Gmail1 Sent Mail
+                        </label>
+                        <div className="mt-1 text-lg font-mono text-black break-all">
+                          {config.sentCopyGmail1Email ?? "Not connected"}
+                        </div>
+                      </div>
+                      <a
+                        className="inline-flex items-center justify-center px-5 py-3 border border-transparent text-sm font-medium rounded-lg text-white bg-[#05a6f0] hover:bg-[#0490d3] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#05a6f0] transition-colors"
+                        href="/auth/gmail1"
+                      >
+                        <MailCheck className="mr-2 h-4 w-4" />
+                        Authorize Gmail1
+                      </a>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>

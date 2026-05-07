@@ -8,6 +8,8 @@ export type MailLogStatus =
   | "failed"
   | "duplicate_skipped";
 
+export type SentCopyStatus = "not_configured" | "appended" | "failed";
+
 export type CreateMailLogInput = {
   user_email: string;
   smtp_username: string;
@@ -20,8 +22,25 @@ export type CreateMailLogInput = {
 };
 
 export type UpdateMailLogInput = {
-  status: MailLogStatus;
+  status?: MailLogStatus;
   gmail_response?: unknown;
+  gmail_sent_message_id?: string;
+  sent_raw_message_id?: string;
+  sent_raw_mime?: string;
+  sent_raw_mime_base64?: string;
+  sent_copy_gmail1_email?: string;
+  sent_copy_status?: SentCopyStatus;
+  sent_copy_mailbox?: string;
+  sent_copy_append_response?: unknown;
+  sent_copy_delete_status?: string;
+  sent_copy_delete_message_id?: string;
+  sent_copy_delete_gmail_message_ids?: string[];
+  sent_copy_delete_matched_uids?: number[];
+  sent_copy_delete_deleted_count?: number;
+  sent_copy_delete_responses?: unknown[];
+  sent_copy_delete_error?: string;
+  sent_copy_delete_skipped_reason?: string;
+  sent_copy_error?: string;
   error?: string;
 };
 
@@ -31,6 +50,23 @@ type MailLogRecord = CreateMailLogInput & {
   updated_at: string;
   status: MailLogStatus;
   gmail_response?: unknown;
+  gmail_sent_message_id?: string;
+  sent_raw_message_id?: string;
+  sent_raw_mime?: string;
+  sent_raw_mime_base64?: string;
+  sent_copy_gmail1_email?: string;
+  sent_copy_status?: SentCopyStatus;
+  sent_copy_mailbox?: string;
+  sent_copy_append_response?: unknown;
+  sent_copy_delete_status?: string;
+  sent_copy_delete_message_id?: string;
+  sent_copy_delete_gmail_message_ids?: string[];
+  sent_copy_delete_matched_uids?: number[];
+  sent_copy_delete_deleted_count?: number;
+  sent_copy_delete_responses?: unknown[];
+  sent_copy_delete_error?: string;
+  sent_copy_delete_skipped_reason?: string;
+  sent_copy_error?: string;
   error?: string;
 };
 
@@ -54,13 +90,11 @@ export async function updateMailLog(
   input: UpdateMailLogInput
 ) {
   const existing = JSON.parse(await fs.readFile(filePath, "utf8"));
-  const updated: MailLogRecord = {
+  const updated: MailLogRecord = dropUndefined({
     ...existing,
-    status: input.status,
+    ...input,
     updated_at: new Date().toISOString(),
-    gmail_response: input.gmail_response,
-    error: input.error,
-  };
+  });
   await writeJson(filePath, updated);
 }
 
@@ -76,10 +110,24 @@ async function getLogPath(date: Date, id: string) {
 
 async function writeJson(filePath: string, value: unknown) {
   const tempPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
-  await fs.writeFile(tempPath, `${JSON.stringify(value, null, 2)}\n`, {
-    mode: 0o600,
-  });
+  await fs.writeFile(
+    tempPath,
+    `${JSON.stringify(value, jsonReplacer, 2)}\n`,
+    {
+      mode: 0o600,
+    }
+  );
   await fs.rename(tempPath, filePath);
+}
+
+function dropUndefined<T extends Record<string, unknown>>(value: T) {
+  return Object.fromEntries(
+    Object.entries(value).filter(([, entry]) => entry !== undefined)
+  ) as T;
+}
+
+function jsonReplacer(_key: string, value: unknown) {
+  return typeof value === "bigint" ? value.toString() : value;
 }
 
 function formatDateForDir(date: Date) {
