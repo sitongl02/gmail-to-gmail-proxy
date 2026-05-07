@@ -4,6 +4,7 @@
     "module": "NodeNext",
     "lib": ["ES2022", "ESNext", "DOM"],
     "moduleResolution": "NodeNext",
+    "esModuleInterop": true,
     "outDir": "build",
     "importHelpers": true,
     "alwaysStrict": true,

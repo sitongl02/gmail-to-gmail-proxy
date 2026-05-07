@@ -20,11 +20,37 @@ import {
   updateMailLog,
 } from "../lib/mail-log.js";
 import { appendToGmailSent } from "../lib/gmail-imap.js";
+import { addEnvelopeOnlyRecipientsAsBcc } from "../lib/envelope-bcc.js";
 
 type SessionUser = {
   user: User;
   credentials: GoogleOAuthCredentials;
   smtpUsername: string;
+};
+
+type PendingSendEntry = {
+  mailLogPath: string;
+  raw: Buffer;
+  messageId: string;
+  sessionUser: SessionUser;
+  envelopeRecipients: string[];
+};
+
+type PendingSend = {
+  messageId: string;
+  entries: PendingSendEntry[];
+  envelopeRecipients: Set<string>;
+  timer?: NodeJS.Timeout;
+  resolve: () => void;
+  reject: (err: unknown) => void;
+  promise: Promise<void>;
+  flushing: boolean;
+};
+
+type SentCacheValue = {
+  primaryMailLogPath: string;
+  envelopeRecipients: string[];
+  gmailResponse: unknown;
 };
 
 const cert =
@@ -35,7 +61,11 @@ const cert =
       }
     : {};
 
-const cache = new Cache({ stdTTL: 60, checkperiod: 60 });
+const sentCache = new Cache({ stdTTL: 60, checkperiod: 60 });
+const pendingSends = new Map<string, PendingSend>();
+const aggregationDelayMs = Number(
+  process.env.SMTP_SEND_AGGREGATION_MS ?? 2000
+);
 
 const server = new Server.SMTPServer({
   authMethods: ["PLAIN", "LOGIN"],
@@ -78,6 +108,9 @@ const server = new Server.SMTPServer({
           const raw = Buffer.concat(chunks);
           const msg = raw.toString("base64");
           const rawMime = raw.toString("utf8");
+          const envelopeRecipients = session.envelope.rcptTo.map(
+            (recipient) => recipient.address
+          );
           // unfortunately, gmail seems to send the same message multiple times when sending to multiple recipients so we must dedupe
           const messageId = extractMessageId(rawMime);
           const sessionUser = session.user as any as SessionUser;
@@ -85,45 +118,28 @@ const server = new Server.SMTPServer({
             user_email: sessionUser.user.email,
             smtp_username: sessionUser.smtpUsername,
             mail_from: getEnvelopeAddress(session.envelope.mailFrom),
-            rcpt_to: session.envelope.rcptTo.map(
-              (recipient) => recipient.address
-            ),
+            rcpt_to: envelopeRecipients,
             message_id: messageId,
             raw_mime: rawMime,
             raw_mime_base64: msg,
             size_bytes: raw.length,
           });
           if (messageId) {
-            if (cache.get(messageId)) {
-              await updateMailLog(mailLogPath, {
-                status: "duplicate_skipped",
-              });
-              return callback();
-            }
-            cache.set(messageId, true);
-          }
-          const gmailResponse = await sendGmailMessage(
-            sessionUser.credentials,
-            raw
-          );
-          const sentCopyLogFields = await getSentCopyLogFields(
-            sessionUser,
-            gmailResponse,
-            messageId
-          );
-          try {
-            await updateMailLog(mailLogPath, {
-              status: "sent",
-              gmail_response: gmailResponse,
-              ...sentCopyLogFields,
+            await sendAggregatedMessage({
+              mailLogPath,
+              raw,
+              messageId,
+              sessionUser,
+              envelopeRecipients,
             });
-          } catch (logErr) {
-            console.error("Failed to update sent mail log", logErr);
-          }
-          try {
-            onMailForwarded(sessionUser.user.email, msg);
-          } catch (hookErr) {
-            console.error("Mail forwarded hook failed", hookErr);
+          } else {
+            await sendSingleMessage(
+              mailLogPath,
+              sessionUser,
+              raw,
+              envelopeRecipients,
+              messageId
+            );
           }
           callback();
         } catch (err: any) {
@@ -145,6 +161,158 @@ const server = new Server.SMTPServer({
   // prevent unhandled error from crashing the server
   console.log(err);
 });
+
+async function sendSingleMessage(
+  mailLogPath: string,
+  sessionUser: SessionUser,
+  raw: Buffer,
+  envelopeRecipients: string[],
+  messageId?: string
+) {
+  const gmailSend = addEnvelopeOnlyRecipientsAsBcc(raw, envelopeRecipients);
+  const gmailSendMsg = gmailSend.raw.toString("base64");
+  const gmailResponse = await sendGmailMessage(
+    sessionUser.credentials,
+    gmailSend.raw
+  );
+  const sentCopyLogFields = await getSentCopyLogFields(
+    sessionUser,
+    gmailResponse,
+    messageId
+  );
+  try {
+    await updateMailLog(mailLogPath, {
+      status: "sent",
+      gmail_response: gmailResponse,
+      gmail_send_bcc_added: gmailSend.addedBcc,
+      gmail_send_envelope_recipients: envelopeRecipients,
+      gmail_send_raw_mime: gmailSend.addedBcc.length
+        ? gmailSend.raw.toString("utf8")
+        : undefined,
+      gmail_send_raw_mime_base64: gmailSend.addedBcc.length
+        ? gmailSendMsg
+        : undefined,
+      ...sentCopyLogFields,
+    });
+  } catch (logErr) {
+    console.error("Failed to update sent mail log", logErr);
+  }
+  try {
+    onMailForwarded(sessionUser.user.email, gmailSendMsg);
+  } catch (hookErr) {
+    console.error("Mail forwarded hook failed", hookErr);
+  }
+  return gmailResponse;
+}
+
+async function sendAggregatedMessage(entry: PendingSendEntry) {
+  const cached = sentCache.get<SentCacheValue>(entry.messageId);
+  if (cached) {
+    await updateMailLog(entry.mailLogPath, {
+      status: "duplicate_skipped",
+      duplicate_reason: "message_id_already_sent",
+      merged_into_mail_log: cached.primaryMailLogPath,
+      gmail_response: cached.gmailResponse,
+      gmail_send_envelope_recipients: cached.envelopeRecipients,
+    });
+    return;
+  }
+
+  let pending = pendingSends.get(entry.messageId);
+  if (!pending) {
+    pending = createPendingSend(entry.messageId);
+    pendingSends.set(entry.messageId, pending);
+  }
+
+  if (pending.flushing) {
+    await pending.promise;
+    const cachedAfterFlush = sentCache.get<SentCacheValue>(entry.messageId);
+    await updateMailLog(entry.mailLogPath, {
+      status: "duplicate_skipped",
+      duplicate_reason: "message_id_send_already_flushing",
+      merged_into_mail_log: cachedAfterFlush?.primaryMailLogPath,
+      gmail_response: cachedAfterFlush?.gmailResponse,
+      gmail_send_envelope_recipients: cachedAfterFlush?.envelopeRecipients,
+    });
+    return;
+  }
+
+  pending.entries.push(entry);
+  for (const recipient of entry.envelopeRecipients) {
+    pending.envelopeRecipients.add(recipient);
+  }
+  schedulePendingSend(pending);
+  await pending.promise;
+}
+
+function createPendingSend(messageId: string): PendingSend {
+  let resolve!: () => void;
+  let reject!: (err: unknown) => void;
+  const promise = new Promise<void>((promiseResolve, promiseReject) => {
+    resolve = promiseResolve;
+    reject = promiseReject;
+  });
+  return {
+    messageId,
+    entries: [],
+    envelopeRecipients: new Set(),
+    resolve,
+    reject,
+    promise,
+    flushing: false,
+  };
+}
+
+function schedulePendingSend(pending: PendingSend) {
+  if (pending.timer) {
+    clearTimeout(pending.timer);
+  }
+  pending.timer = setTimeout(() => {
+    flushPendingSend(pending).catch((err) => pending.reject(err));
+  }, aggregationDelayMs);
+  pending.timer.unref();
+}
+
+async function flushPendingSend(pending: PendingSend) {
+  pending.flushing = true;
+  const [primary, ...merged] = pending.entries;
+  if (!primary) {
+    pending.resolve();
+    pendingSends.delete(pending.messageId);
+    return;
+  }
+
+  try {
+    const envelopeRecipients = [...pending.envelopeRecipients];
+    const gmailResponse = await sendSingleMessage(
+      primary.mailLogPath,
+      primary.sessionUser,
+      primary.raw,
+      envelopeRecipients,
+      primary.messageId
+    );
+    sentCache.set(pending.messageId, {
+      primaryMailLogPath: primary.mailLogPath,
+      envelopeRecipients,
+      gmailResponse,
+    });
+    await Promise.all(
+      merged.map((entry) =>
+        updateMailLog(entry.mailLogPath, {
+          status: "merged_into_send",
+          merged_into_mail_log: primary.mailLogPath,
+          gmail_response: gmailResponse,
+          gmail_send_envelope_recipients: envelopeRecipients,
+        })
+      )
+    );
+    pending.resolve();
+  } catch (err) {
+    pending.reject(err);
+  } finally {
+    pendingSends.delete(pending.messageId);
+  }
+}
 
 function serializeError(err: unknown) {
   if (err instanceof Error) {
@@ -232,7 +400,12 @@ server.listen(port, () => {
   console.log(`SMTP server listening on port ${port}`);
   process.on("SIGINT", () => {
     console.log("SMTP server shutting down");
-    cache.close();
+    sentCache.close();
+    for (const pending of pendingSends.values()) {
+      if (pending.timer) {
+        clearTimeout(pending.timer);
+      }
+    }
     server.close(() => {
       console.log("SMTP server exiting");
       process.exit(0);

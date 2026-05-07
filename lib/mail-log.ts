@@ -6,7 +6,8 @@ export type MailLogStatus =
   | "received"
   | "sent"
   | "failed"
-  | "duplicate_skipped";
+  | "duplicate_skipped"
+  | "merged_into_send";
 
 export type SentCopyStatus = "not_configured" | "appended" | "failed";
 
@@ -18,6 +19,9 @@ export type CreateMailLogInput = {
   message_id?: string;
   raw_mime: string;
   raw_mime_base64: string;
+  gmail_send_bcc_added?: string[];
+  gmail_send_raw_mime?: string;
+  gmail_send_raw_mime_base64?: string;
   size_bytes: number;
 };
 
@@ -25,6 +29,12 @@ export type UpdateMailLogInput = {
   status?: MailLogStatus;
   gmail_response?: unknown;
   gmail_sent_message_id?: string;
+  gmail_send_bcc_added?: string[];
+  gmail_send_envelope_recipients?: string[];
+  gmail_send_raw_mime?: string;
+  gmail_send_raw_mime_base64?: string;
+  merged_into_mail_log?: string;
+  duplicate_reason?: string;
   sent_raw_message_id?: string;
   sent_raw_mime?: string;
   sent_raw_mime_base64?: string;
@@ -51,6 +61,12 @@ type MailLogRecord = CreateMailLogInput & {
   status: MailLogStatus;
   gmail_response?: unknown;
   gmail_sent_message_id?: string;
+  gmail_send_bcc_added?: string[];
+  gmail_send_envelope_recipients?: string[];
+  gmail_send_raw_mime?: string;
+  gmail_send_raw_mime_base64?: string;
+  merged_into_mail_log?: string;
+  duplicate_reason?: string;
   sent_raw_message_id?: string;
   sent_raw_mime?: string;
   sent_raw_mime_base64?: string;
