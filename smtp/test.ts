@@ -4,19 +4,19 @@ import nodemailer from "nodemailer";
 import { getUser } from "../lib/db";
 
 (async () => {
-  const [from, to] = process.argv.slice(2);
+  const [authEmail, to, from = authEmail] = process.argv.slice(2);
 
-  const user = await getUser(from);
+  const user = await getUser(authEmail);
 
   if (!user) {
-    throw new Error(`User ${from} not found.`);
+    throw new Error(`User ${authEmail} not found.`);
   }
 
   const transporter = nodemailer.createTransport({
     host: "localhost",
-    port: 587,
+    port: Number(process.env.SMTP_PORT ?? 587),
     auth: {
-      user: user.email,
+      user: authEmail,
       pass: user.smtp_password,
     },
     tls: {
@@ -25,6 +25,7 @@ import { getUser } from "../lib/db";
   });
 
   await transporter.sendMail({
+    from,
     to,
     subject: "Hello!",
     text: "Hello from your relay!",

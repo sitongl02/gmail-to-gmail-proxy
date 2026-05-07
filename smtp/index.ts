@@ -4,17 +4,19 @@ import Server from "smtp-server";
 import {
   getApp,
   getCredentials,
-  getMicrosoftGraphClient,
-  MicrosoftOAuthCredentials,
-} from "../lib/microsoft.js";
+  GoogleOAuthCredentials,
+  sendGmailMessage,
+} from "../lib/google.js";
 import fs from "node:fs";
 import { getUser, User } from "../lib/db.js";
 import { onMailForwarded } from "../lib/hooks.js";
 import Cache from "node-cache";
+import { createMailLog, updateMailLog } from "../lib/mail-log.js";
 
 type SessionUser = {
   user: User;
-  credentials: MicrosoftOAuthCredentials;
+  credentials: GoogleOAuthCredentials;
+  smtpUsername: string;
 };
 
 const cert =
@@ -48,6 +50,7 @@ const server = new Server.SMTPServer({
         user: {
           user,
           credentials,
+          smtpUsername: auth.username,
         } as SessionUser,
       });
     } catch (err) {
@@ -56,6 +59,7 @@ const server = new Server.SMTPServer({
   },
   onData(stream, session, callback) {
     const chunks: Buffer[] = [];
+    let mailLogPath: string | undefined;
     stream
       .on("data", (chunk: Buffer) => {
         chunks.push(chunk);
@@ -65,23 +69,52 @@ const server = new Server.SMTPServer({
         try {
           const raw = Buffer.concat(chunks);
           const msg = raw.toString("base64");
+          const rawMime = raw.toString("utf8");
           // unfortunately, gmail seems to send the same message multiple times when sending to multiple recipients so we must dedupe
-          const messageId = raw.toString().match(/^Message-ID: (.*)$/im)?.[1];
+          const messageId = rawMime.match(/^Message-ID: (.*)$/im)?.[1];
+          const sessionUser = session.user as any as SessionUser;
+          mailLogPath = await createMailLog({
+            user_email: sessionUser.user.email,
+            smtp_username: sessionUser.smtpUsername,
+            mail_from: getEnvelopeAddress(session.envelope.mailFrom),
+            rcpt_to: session.envelope.rcptTo.map(
+              (recipient) => recipient.address
+            ),
+            message_id: messageId,
+            raw_mime: rawMime,
+            raw_mime_base64: msg,
+            size_bytes: raw.length,
+          });
           if (messageId) {
             if (cache.get(messageId)) {
+              await updateMailLog(mailLogPath, {
+                status: "duplicate_skipped",
+              });
               return callback();
             }
             cache.set(messageId, true);
           }
-          const sessionUser = session.user as any as SessionUser;
-          const client = getMicrosoftGraphClient(sessionUser.credentials);
-          await client
-            .api("/me/sendMail")
-            .header("Content-Type", "text/plain")
-            .post(msg);
+          const gmailResponse = await sendGmailMessage(
+            sessionUser.credentials,
+            raw
+          );
+          await updateMailLog(mailLogPath, {
+            status: "sent",
+            gmail_response: gmailResponse,
+          });
           onMailForwarded(sessionUser.user.email, msg);
           callback();
         } catch (err: any) {
+          if (mailLogPath) {
+            try {
+              await updateMailLog(mailLogPath, {
+                status: "failed",
+                error: serializeError(err),
+              });
+            } catch (logErr) {
+              console.error("Failed to update mail log", logErr);
+            }
+          }
           callback(err);
         }
       });
@@ -91,7 +124,22 @@ const server = new Server.SMTPServer({
   console.log(err);
 });
 
-const port = 587;
+function serializeError(err: unknown) {
+  if (err instanceof Error) {
+    return err.stack ?? err.message;
+  }
+  try {
+    return JSON.stringify(err);
+  } catch {
+    return String(err);
+  }
+}
+
+function getEnvelopeAddress(address: false | { address: string }) {
+  return address ? address.address : undefined;
+}
+
+const port = Number(process.env.SMTP_PORT ?? 587);
 server.listen(port, () => {
   console.log(`SMTP server listening on port ${port}`);
   process.on("SIGINT", () => {

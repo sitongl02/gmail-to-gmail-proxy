@@ -9,5 +9,10 @@ export async function POST() {
     user.email,
     crypto.randomBytes(16).toString("hex")
   );
-  return NextResponse.json(updatedUser);
+  return NextResponse.json({
+    email: updatedUser?.email,
+    smtp_password: updatedUser?.smtp_password,
+    smtp_host: process.env.SMTP_HOST,
+    smtp_port: Number(process.env.SMTP_PORT ?? 587),
+  });
 }

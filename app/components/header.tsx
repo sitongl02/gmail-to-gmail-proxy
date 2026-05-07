@@ -25,20 +25,19 @@ export function Header() {
           <div className="inline-block w-4 border-t-4 border-dotted border-gray-300" />
           <Image
             className="inline-flex items-center"
-            src="/outlook.webp"
-            alt="Outlook Logo"
+            src="/gmail.webp"
+            alt="Gmail Logo"
             width={64}
             height={64}
           />
         </Link>
       </div>
       <h1 className="text-4xl font-bold text-gray-900 sm:text-5xl mb-6">
-        Configure "Send mail as" In Gmail For Personal Outlook.com Emails
+        Configure "Send mail as" In Gmail With Google OAuth
       </h1>
       <p className="text-xl text-gray-600 max-w-3xl mx-auto">
-        An SMTP relay service to restore Gmail's "Send mail as" functionality
-        for your Outlook.com account after Microsoft's basic authentication
-        deprecation on September 16, 2024.
+        An SMTP relay service that accepts Gmail's basic SMTP connection and
+        sends the message through the authenticated account with the Gmail API.
       </p>
     </div>
   );

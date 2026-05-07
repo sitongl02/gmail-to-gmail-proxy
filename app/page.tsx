@@ -1,4 +1,4 @@
-import { ArrowRight, AlertCircle, Server, Github } from "lucide-react";
+import { ArrowRight, KeyRound, Server, ShieldCheck } from "lucide-react";
 import { Header } from "./components/header";
 import { Footer } from "./components/footer";
 import Image from "next/image";
@@ -11,37 +11,17 @@ export default function Home() {
 
         <div className="mt-16 bg-white rounded-2xl shadow-xl p-8">
           <div className="flex items-start space-x-4">
-            <AlertCircle className="h-6 w-6 text-amber-500 flex-shrink-0 mt-1" />
+            <KeyRound className="h-6 w-6 text-amber-500 flex-shrink-0 mt-1" />
             <div className="pr-10">
               <h2 className="text-2xl font-semibold text-gray-900 mb-4">
-                The Issue
+                The SMTP Bridge
               </h2>
               <p className="text-gray-600 leading-relaxed">
-                As of September 16, 2024, Microsoft has{" "}
-                <a
-                  className="text-blue-500"
-                  rel="noopener"
-                  target="_blank"
-                  href="https://techcommunity.microsoft.com/blog/outlook/keeping-our-outlook-personal-email-users-safe-reinforcing-our-commitment-to-secu/4164184"
-                >
-                  discontinued
-                </a>{" "}
-                basic authentication for personal Outlook.com accounts. This
-                change affects Gmail's "Send mail as" feature, which relies on
-                basic SMTP authentication. Since Gmail hasn't updated their SMTP
-                integration, users can no longer send emails through Outlook.com
-                accounts via Gmail. Notably, attempts to connect to the
-                Outlook.com SMTP server <code>smtp-mail.outlook.com</code>{" "}
-                results in the following error:
-              </p>
-              <p className="text-red-600 leading-relaxed">
-                <code>
-                  Authentication failed. Please check your username/password.
-                  Server returned error: "334 VXNlcm5hbWU6 334 UGFzc3dvcmQ6 535
-                  5.7.139 Authentication unsuccessful, basic authentication is
-                  disabled. [AS4P251CA0014.EURP251.PROD.OUTLOOK.COM
-                  2024-10-26T21:19:04.955Z 08DCF55F2D078725] , code: 535"
-                </code>
+                Gmail's "Send mail as" setup still expects an SMTP server,
+                username, and password. This proxy provides that SMTP surface
+                to Gmail, then uses Google OAuth on the server side so the
+                message can be sent through the authenticated Gmail account
+                without storing a Google account password.
               </p>
             </div>
           </div>
@@ -50,71 +30,44 @@ export default function Home() {
             <Server className="h-6 w-6 text-green-500 flex-shrink-0 mt-1" />
             <div className="pr-10">
               <h2 className="text-2xl font-semibold text-gray-900 mb-4">
-                The Solution
+                The Gmail API Path
               </h2>
               <p className="text-gray-600 leading-relaxed">
-                <a
-                  rel="noopener"
-                  className="inline-flex gap-1 items-center px-4 py-2 border border-transparent text-lg font-medium rounded-xl text-white bg-black focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-black transition-all duration-200 hover:scale-105"
-                  href="https://github.com/jasperchan/gmail-to-outlook-proxy"
-                  target="_blank"
-                >
-                  <Github fill="white" size={16} />
-                  Github (For Self-Hosting)
-                </a>
-              </p>
-              <p className="text-gray-600 leading-relaxed mt-4">
-                This is a secure bridging service that enables Gmail to
-                communicate seamlessly with Microsoft's modern authentication
-                systems. It functions as an SMTP proxy that:
-              </p>
-              <ul className="text-gray-600 leading-relaxed list-disc pl-6">
-                <li>
-                  Accepts incoming email traffic from Gmail using a compatible
-                  SMTP server
-                </li>
-                <li>
-                  Securely handles the authentication and transmission process
-                  using TLS encryption
-                </li>
-                <li>
-                  Forwards your emails through Microsoft's Graph API using their{" "}
-                  <a
-                    className="text-blue-500"
-                    rel="noopener"
-                    target="_blank"
-                    href="https://learn.microsoft.com/en-us/graph/api/user-sendmail?view=graph-rest-1.0&tabs=http#example-4-send-a-new-message-using-mime-format"
-                  >
-                    sendMail
-                  </a>{" "}
-                  endpoint
-                </li>
-              </ul>
-              <p className="text-gray-600 leading-relaxed">
-                The service maintains end-to-end security by using encrypted
-                HTTPS for Microsoft communications and TLS for Gmail
-                connections. This ensures your email content remains protected
-                and tamper-proof throughout transmission, while adhering to both
-                Gmail's and Microsoft's security protocols. This is provided as
-                a <strong>free</strong> service for personal use and the author
-                strongly encourages self-hosting if this functionality is
-                critical to you.
-              </p>
-              <p className="text-black bg-gray-200 p-4 mt-4">
-                The <strong>only</strong> permission this service requests is{" "}
-                <code>Mail.Send</code>, which is required to send emails on your
-                behalf. Your email credentials are <strong>never</strong> stored
-                or logged and no access is granted to your contacts or inbox.
-                Revoke this limited permission at any time via{" "}
+                The SMTP server accepts the MIME email from Gmail, encodes it
+                as a base64url string, and forwards it to Google's{" "}
                 <a
                   className="text-blue-500"
                   rel="noopener"
-                  href="https://account.microsoft.com/privacy/app-access"
                   target="_blank"
+                  href="https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.messages/send"
                 >
-                  https://account.microsoft.com/privacy/app-access
-                </a>
-                .
+                  users.messages.send
+                </a>{" "}
+                endpoint.
+              </p>
+              <ul className="text-gray-600 leading-relaxed list-disc pl-6 mt-4">
+                <li>Gmail connects to this proxy over SMTP with TLS.</li>
+                <li>The proxy authenticates Gmail with a generated SMTP password.</li>
+                <li>
+                  The proxy sends through the Gmail API using the user's Google
+                  OAuth token.
+                </li>
+              </ul>
+            </div>
+          </div>
+
+          <div className="mt-12 flex items-start space-x-4">
+            <ShieldCheck className="h-6 w-6 text-blue-500 flex-shrink-0 mt-1" />
+            <div className="pr-10">
+              <h2 className="text-2xl font-semibold text-gray-900 mb-4">
+                Permissions
+              </h2>
+              <p className="text-black bg-gray-200 p-4 mt-4">
+                The Gmail permission requested is{" "}
+                <code>https://www.googleapis.com/auth/gmail.send</code>, which
+                is used to send mail only. The OAuth login also requests{" "}
+                <code>openid email</code> so the app can identify which Gmail
+                address owns the generated SMTP credentials.
               </p>
             </div>
           </div>
@@ -126,22 +79,22 @@ export default function Home() {
                 href="/auth"
               >
                 <Image
-                  src="/microsoft.svg"
-                  alt="Microsoft Logo"
+                  src="/gmail.webp"
+                  alt="Gmail Logo"
                   className="h-5 w-5 mr-3"
                   width={20}
                   height={20}
                 />
-                Sign in with Microsoft
+                Sign in with Google
                 <ArrowRight className="ml-3 h-5 w-5" />
               </a>
               <p className="mt-4 text-sm text-gray-500">
-                Secure authentication through Microsoft's official{" "}
+                Secure authentication through Google's official{" "}
                 <a
                   className="text-blue-500"
                   rel="noopener"
                   target="_blank"
-                  href="https://learn.microsoft.com/en-us/entra/identity-platform/v2-oauth2-auth-code-flow"
+                  href="https://developers.google.com/identity/protocols/oauth2/web-server"
                 >
                   OAuth 2.0 flow
                 </a>

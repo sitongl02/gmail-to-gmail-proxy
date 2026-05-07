@@ -33,7 +33,7 @@ export default function Page() {
         setConfig({
           email: data.email,
           password: data.smtp_password,
-          smtpPort: 587,
+          smtpPort: data.smtp_port,
           smtpServer: data.smtp_host,
           security: "TLS",
         });
@@ -64,8 +64,8 @@ export default function Page() {
       setConfig({
         email: data.email,
         password: data.smtp_password,
-        smtpPort: 587,
-        smtpServer: "smtp.sendas.email",
+        smtpPort: data.smtp_port,
+        smtpServer: data.smtp_host,
         security: "TLS",
       });
     } catch (err) {
@@ -97,22 +97,22 @@ export default function Page() {
             href="/auth"
           >
             <Image
-              src="/microsoft.svg"
-              alt="Microsoft Logo"
+              src="/gmail.webp"
+              alt="Gmail Logo"
               className="h-5 w-5 mr-3"
               width={20}
               height={20}
             />
-            Sign in with Microsoft
+            Sign in with Google
             <ArrowRight className="ml-3 h-5 w-5" />
           </a>
           <p className="mt-4 text-sm text-gray-500">
-            Secure authentication through Microsoft's official{" "}
+            Secure authentication through Google's official{" "}
             <a
               className="text-blue-500"
               rel="noopener"
               target="_blank"
-              href="https://learn.microsoft.com/en-us/entra/identity-platform/v2-oauth2-auth-code-flow"
+              href="https://developers.google.com/identity/protocols/oauth2/web-server"
             >
               OAuth 2.0 flow
             </a>
@@ -211,7 +211,7 @@ export default function Page() {
                     <button
                       onClick={() => resetPassword()}
                       className="p-2 hover:bg-gray-200 rounded-lg transition-colors"
-                      title="Copy to clipboard"
+                      title="Reset SMTP password"
                     >
                       <RefreshCw className="h-5 w-5 text-gray-500" />
                     </button>
@@ -273,7 +273,7 @@ export default function Page() {
               </li>
               <li>Go to "Accounts and Import".</li>
               <li>Find "Send mail as" section.</li>
-              <li>Add your Outlook.com email using the SMTP settings above.</li>
+              <li>Add your Gmail address using the SMTP settings above.</li>
             </ol>
           </div>
         </div>

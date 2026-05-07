@@ -7,5 +7,6 @@ export async function GET() {
     email: user.email,
     smtp_password: user.smtp_password,
     smtp_host: process.env.SMTP_HOST,
+    smtp_port: Number(process.env.SMTP_PORT ?? 587),
   });
 }

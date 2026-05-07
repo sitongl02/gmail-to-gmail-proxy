@@ -1,13 +1,13 @@
 {
   "apps": [
     {
-      "name": "sendas-smtp",
+      "name": "gmail-proxy-smtp",
       "script": "build/smtp",
       "instances": 1,
       "exec_mode": "fork"
     },
     {
-      "name": "sendas-app",
+      "name": "gmail-proxy-app",
       "script": "npm",
       "args": "run app:start",
       "instances": 1,

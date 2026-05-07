@@ -1,7 +1,6 @@
-import sqlite3 from "sqlite3";
-import { Database, open } from "sqlite";
+import type { Database } from "sqlite";
 import _ from "lodash";
-import { MicrosoftOAuthCredentials } from "./microsoft";
+import type { GoogleOAuthCredentials } from "./google";
 
 export type Connection = Database;
 
@@ -9,7 +8,7 @@ let db: Connection | undefined;
 
 export type User = {
   email: string;
-  token: MicrosoftOAuthCredentials;
+  token: GoogleOAuthCredentials;
   smtp_password: string;
   app_id: string;
 };
@@ -17,6 +16,8 @@ export type User = {
 export async function getDb() {
   if (!db) {
     const filename = process.env.SQLITE_PATH!;
+    const sqlite3 = (await import("sqlite3")).default;
+    const { open } = await import("sqlite");
     db = await open({
       filename,
       driver: sqlite3.Database,
@@ -30,6 +31,14 @@ export async function getDb() {
         updated_at TIMESTAMP DEFAULT (datetime('now')),
         smtp_password TEXT NOT NULL,
         app_id TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS Aliases (
+        email TEXT NOT NULL PRIMARY KEY,
+        user_email TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT (datetime('now')),
+        updated_at TIMESTAMP DEFAULT (datetime('now')),
+        FOREIGN KEY(user_email) REFERENCES Tokens(email)
       );
     `);
   }
@@ -50,7 +59,21 @@ export async function getUser(email?: string): Promise<User | undefined> {
     token: string;
     smtp_password: string;
     app_id: string;
-  }>(`SELECT * FROM Tokens WHERE email = ?`, email);
+  }>(
+    `
+      SELECT Tokens.*
+      FROM Tokens
+      WHERE Tokens.email = ?
+      UNION ALL
+      SELECT Tokens.*
+      FROM Aliases
+      JOIN Tokens ON Tokens.email = Aliases.user_email
+      WHERE Aliases.email = ?
+      LIMIT 1
+    `,
+    email,
+    email
+  );
   return result
     ? {
         email: result.email,
@@ -59,6 +82,16 @@ export async function getUser(email?: string): Promise<User | undefined> {
         app_id: result.app_id,
       }
     : undefined;
+}
+
+export async function upsertAlias(email: string, user_email: string) {
+  await upsert("Aliases", [
+    {
+      email,
+      user_email,
+      updated_at: new Date().toISOString(),
+    },
+  ]);
 }
 
 export async function updateUserSmtpPassword(

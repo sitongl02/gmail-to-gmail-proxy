@@ -1,5 +1,5 @@
 {
-  "name": "gmail-to-outlook-proxy",
+  "name": "gmail-to-gmail-proxy",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -16,7 +16,6 @@
     "reload": "pm2 reload pm2.json"
   },
   "dependencies": {
-    "@microsoft/microsoft-graph-client": "^3.0.7",
     "@next/third-parties": "^15.0.1",
     "iron-session": "^8.0.3",
     "localenv": "^0.2.2",

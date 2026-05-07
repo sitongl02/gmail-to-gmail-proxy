@@ -4,7 +4,7 @@ import {
   exchangeForCredentials,
   getApp,
   getAuthorizationUrl,
-} from "../../lib/microsoft";
+} from "../../lib/google";
 import qs from "node:querystring";
 import { cookies } from "next/headers";
 import { getIronSession } from "iron-session";
@@ -19,24 +19,33 @@ function getCallbackUrl(req: NextRequest) {
 }
 
 export async function GET(req: NextRequest) {
+  const code = req.nextUrl.searchParams.get("code");
+  if (code) {
+    return finishAuth(req, code);
+  }
+
   const redirectUrl = getAuthorizationUrl(getCallbackUrl(req), getApp());
   return NextResponse.redirect(redirectUrl);
 }
 
 export async function POST(req: NextRequest) {
+  const body = qs.parse(await req.text()) as {
+    code: string;
+    state: string;
+  };
+  return finishAuth(req, body.code);
+}
+
+async function finishAuth(req: NextRequest, code: string) {
   let success = false;
   try {
     const session = await getIronSession<SessionData>(await cookies(), {
       password: process.env.SESSION_SECRET!,
       cookieName: process.env.SESSION_COOKIE!,
     });
-    const body = qs.parse(await req.text()) as {
-      code: string;
-      state: string;
-    };
     const { email } = await exchangeForCredentials(
       getCallbackUrl(req),
-      body.code,
+      code,
       getApp()
     );
     session.email = email;
@@ -44,7 +53,7 @@ export async function POST(req: NextRequest) {
     await onNewLogin(email);
     success = true;
   } catch (err) {
-    // something went wrong
+    console.error("OAuth callback failed", err);
   }
   // it's crazy but for some reason redirects are treated as errors!
   // https://nextjs.org/docs/app/building-your-application/routing/redirecting#redirects-in-nextconfigjs
